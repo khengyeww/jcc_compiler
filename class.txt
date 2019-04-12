@@ -1,0 +1,28 @@
+class Complex
+	re = im = 0;
+	def initialize(r, i)
+		re = r;
+		im = i;
+	end
+	def add(c)
+		Complex.new(re + c.re, im + c.im);
+	end
+	def to_s()
+		re + " + " + im + "i";
+	end
+end
+
+c1 = Complex.new(1, 2);
+puts "c1 = " + c1;
+puts "----";
+
+c2 = Complex.new(3, 4);
+puts "c1 = " + c1;
+puts "c2 = " + c2;
+puts "----";
+
+c3 = c1.add(c2);
+
+puts "c1 = " + c1;
+puts "c2 = " + c2;
+puts "c3 = " + c3;

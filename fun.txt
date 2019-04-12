@@ -1,0 +1,15 @@
+def select(from, to, p)
+  i = from;
+  while i <= to do
+    if p(i) then
+      puts i;
+    end
+    i = i + 1;
+  end
+end
+
+select(0, 10, fun(n) { n % 2 == 0; });
+puts "----";
+select(0, 10, fun(n) { n % 2 != 0; });
+puts "----";
+select(0, 10, fun(n) { n >= 5; });

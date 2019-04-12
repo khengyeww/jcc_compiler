@@ -1,0 +1,377 @@
+options {
+  JDK_VERSION = "1.5";
+  STATIC = false;
+  UNICODE_INPUT = true;
+}
+
+PARSER_BEGIN(Quartz)
+
+import java.io.*;
+import java.util.*;
+public class Quartz
+{
+	private Env env = new Env();
+	
+ 	public static void main(String args [])
+    {
+        try {
+            if (args.length == 0)
+                new Quartz(System.in).interactive();    // 対話モードへ
+            else {
+                Reader reader = new BufferedReader(new FileReader(new File(args[0])));
+                Quartz quartz = new Quartz(reader);
+                quartz.eval();
+            }
+        } catch (ParseException e) {
+            System.err.println(e);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public void interactive() throws IOException {
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        while (true) {
+            System.out.print("> ");
+            String input = "";
+            while (true) { 
+                String line = reader.readLine();
+                if (line == null) return;
+                input += line;
+                if (line.length() == 0 || input.charAt(input.length() - 1) != '\\') 
+                    break;
+                input = input.substring(0, input.length() - 1);
+	    }
+            try {
+                ReInit(new StringReader(input));
+                eval();
+            } catch (ParseException e) {
+                System.err.println(e);
+            }
+        }
+    }	
+}
+
+PARSER_END(Quartz)
+
+SKIP : {
+	< [" ", "\r", "\t", "\n"] > 
+	| < "#" (~["\n", "\r"])* ("\n" | "\r" | "\r\n")? >
+}
+
+TOKEN : {
+  	< IF			: "if">
+  |	< THEN			: "then">
+  |	< ELSE			: "else">
+  |	< WHILE		: "while">
+  |	< DO			: "do">
+  |	< END			: "end">
+  | < DEF			: "def" >
+  | < FUN			: "fun">
+  | < PUTS			: "puts" >
+  |	< INTEGER		: (["0"-"9"])+ >
+  | < STRING		: "\"" (~["\""])* "\"" >
+  |	< IDENTIFIER	: ["a"-"z", "A"-"Z", "_"](["a"-"z", "A"-"Z", "_", "0"-"9"])* >
+}
+
+void eval() :
+{
+    Node root;
+}
+{
+	/*
+	(
+    	root = stmt()
+    	{
+    		System.out.println("tree: " + root);
+    		System.out.println("=> " + root.eval(env));
+    	}
+    )*
+    //*/
+	( root = stmt() { root.eval(env); } )* <EOF>
+}
+
+Node stmt() :
+{
+	Node v;
+}
+{
+	(v = ifStmt() | v = whileStmt() | v = defStmt() | v = simpleStmt() | v = putsStmt() )
+	{ return v; }
+}
+
+Node ifStmt() :
+{
+	Token t;
+	Node a, b, c = null;
+}
+{
+	t = <IF> a = expr() <THEN> b = block() [<ELSE> c = block()] <END>
+	{ return new IfNode(t.beginLine, a, b, c); }
+}
+
+Node whileStmt() :
+{
+	Token t;
+	Node a, b;
+}
+{
+	t = <WHILE> a = expr() <DO> b = block() <END>
+	{ return new WhileNode(t.beginLine, a, b); }
+}
+
+Node defStmt() :
+{
+	Token t;
+	List<String> ps;
+	Node body;
+}
+{
+	<DEF> t = <IDENTIFIER> ps = paramList() body = block() <END>
+	{ return new DefNode(t.beginLine, t.image, ps, body); }
+}
+
+List<String> paramList() :
+{
+	Token t;
+	List<String> ps = new ArrayList<String>();
+}
+{
+	"(" [ t = <IDENTIFIER> { ps.add(t.image); }
+			( "," t = <IDENTIFIER> { ps.add(t.image); } )* ] ")"
+	{ return ps; }
+}
+
+Node putsStmt() :
+{
+	Token t;
+	Node n;
+}
+{
+	t = <PUTS> n = simpleStmt()
+	{ return new PutsNode(t.beginLine, n); }
+}
+
+Node block() :
+{
+	List<Node> nodes = new ArrayList<Node>();
+	Node v;
+}
+{
+	( v = stmt() { nodes.add(v); } )*
+	{ return new BlockNode(nodes); }
+}
+
+Node simpleStmt() :
+{
+	Token t;
+	Node v;
+}
+{
+	v = expr() t = ";"
+	{ return v; }
+}
+
+Node expr() :
+{
+	Token t;
+	NameNode n;
+	Node v;
+}
+{
+    LOOKAHEAD(2)
+    n = name() t = "=" v = expr()
+    { return new AssignNode(t.beginLine, n, v); }
+    |
+    v = orExpr()
+    { return v; }
+}
+
+Node orExpr() :
+{
+	Token t;
+	Node x, y;
+}
+{
+	x = andExpr()
+	(
+		t = "||" y = andExpr()
+		{ x = new BinExprNode(t.beginLine, x, t.image, y); }
+	)*
+	{ return x; }
+}
+
+Node andExpr() :
+{
+	Token t;
+	Node x, y;
+}
+{
+	x = compExpr()
+	(
+		t = "&&" y = compExpr()
+		{ x = new BinExprNode(t.beginLine, x, t.image, y); }
+	)*
+	{ return x; }
+}
+
+Node compExpr() :
+{
+	Token t;
+	Node x, y;
+}
+{
+    x = numExpr()
+    [
+    	(
+    		t = ">" |
+    		t = "<" |
+    		t = ">=" |
+    		t = "<=" |
+    		t = "==" |
+    		t = "!="
+    	)
+		y = numExpr()
+    	{ x = new BinExprNode(t.beginLine, x, t.image, y); }
+    ]
+	{ return x; }
+}
+
+Node numExpr() :
+{
+	Token t;
+	Node x, y;
+}
+{
+    x = term()
+    (
+    	(t = "+" y = term() | t = "-" y = term())
+		{ x = new BinExprNode(t.beginLine, x, t.image, y); }
+    )*
+    {
+        return x;
+    }
+}
+
+Node term() :
+{
+	Token t;
+	Node a, b;
+}
+{
+	a = factor()
+	(
+		(t = "*" b = factor() | t = "/" b = factor() | t = "%" b = factor())
+		{ a = new BinExprNode(t.beginLine, a, t.image, b); }
+	)*
+	{
+		return a;
+	}
+}
+
+Node factor() :
+{
+	Token t;
+	Node i;
+}
+{
+	i = element()				{ return  i; } |
+	"(" i = expr() ")"		{ return  i; } |
+ 	t = "-" i = factor()		{ return new NegExprNode(t.beginLine, i); } |
+	t = "+" i = factor()		{ return new PosExprNode(t.beginLine, i); }
+}
+
+Node element() :
+{
+	Node n;
+}
+{
+    (n = number() | n = string() | n = name() | n = fun() | n = array())
+    ( n = postfix(n) )*
+    {
+		return n;
+    }
+}
+
+Node number() :
+{
+    Token t;
+}
+{
+	t = <INTEGER>
+	{
+        return new NumberNode(t.beginLine, t.image);
+    }
+}
+
+Node string() :
+{
+    Token t;
+}
+{
+	t = <STRING>
+	{
+        return new StringNode(t.beginLine, t.image);
+    }
+}
+
+NameNode name() :
+{
+    Token t;
+}
+{
+	t = <IDENTIFIER>
+	{ return new NameNode(t.beginLine, t.image); }
+}
+
+Node fun() :
+{
+	Token t;
+	List<String> ps;
+	Node body;
+}
+{
+	t = <FUN> ps = paramList() "{" body = block() "}"
+	{ return new FunNode(t.beginLine, ps, body); }
+}
+
+Node array() :
+{
+	Token t;
+	Node n;
+	List<Node> as = new ArrayList<Node>();
+}
+{
+	t = "[" [ n = expr() { as.add(n); } ( "," n = expr() { as.add(n); } )* ] "]"
+	{ return new DefArrayNode(t.beginLine, as); }
+}
+
+Node postfix(Node n) :
+{
+	List<Node> as;
+	Node z;
+}
+{
+	as = argList() { return new CallNode(n.line(), n, as); }
+	| 
+	z = arrayRef() { return new CallArrayNode(n.line(), n, z); }
+}
+
+List<Node> argList() :
+{
+	Node n;
+	List<Node> as = new ArrayList<Node>();
+}
+{
+	"(" [ n = expr() { as.add(n); } ( "," n = expr() { as.add(n); } )* ] ")"
+	{ return as; }
+}
+
+Node arrayRef() :
+{
+	Node n;
+}
+{
+	"[" n = expr() "]"
+	{ return n; }
+}
